@@ -34,6 +34,7 @@ import io.spine.server.delivery.given.DeliveryTestEnv.RawMessageMemoizer;
 import io.spine.server.delivery.given.DeliveryTestEnv.ShardIndexMemoizer;
 import io.spine.server.delivery.given.DeliveryTestEnv.SignalMemoizer;
 import io.spine.server.delivery.given.FixedShardStrategy;
+import io.spine.server.delivery.given.StatFunnelRepository;
 import io.spine.test.delivery.AddNumber;
 import io.spine.test.delivery.Calc;
 import io.spine.test.delivery.NumberImported;
@@ -274,7 +275,8 @@ class DeliveryTest {
         private void runWith(Set<String> targets) {
             BlackBoxBoundedContext<?> context =
                     BlackBoxBoundedContext.singleTenant()
-                                          .with(new CalculatorRepository());
+                                          .with(new CalculatorRepository())
+                                          .with(new StatFunnelRepository());
 
             SignalMemoizer memoizer = subscribeToDelivered();
 
@@ -312,7 +314,6 @@ class DeliveryTest {
                        .hasStateThat()
                        .comparingExpectedFieldsOnly()
                        .isEqualTo(expectedState);
-
             }
             ensureInboxesEmpty();
         }

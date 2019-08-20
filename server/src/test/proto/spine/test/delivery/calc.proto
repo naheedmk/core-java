@@ -9,6 +9,8 @@ option java_package = "io.spine.test.delivery";
 option java_outer_classname = "DeliveryCalcProto";
 option java_multiple_files = true;
 
+import "spine/test/delivery/delivery_events.proto";
+
 message Calc {
 
     option (entity).kind = AGGREGATE;
@@ -16,4 +18,15 @@ message Calc {
     string id = 1;
 
     int32 sum = 2;
+}
+
+message StatFunnel {
+
+    option (entity).kind = PROJECTION;
+
+    string id = 1;
+
+    repeated NumberAdded added = 2;
+
+    repeated NumberImported imported = 3;
 }
