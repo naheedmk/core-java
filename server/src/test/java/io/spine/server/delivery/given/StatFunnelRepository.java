@@ -34,7 +34,8 @@ import io.spine.test.delivery.StatFunnel;
 public class StatFunnelRepository
         extends ProjectionRepository<String, StatFunnelProjection, StatFunnel> {
 
-    private static final ImmutableSet<String> FUNNEL = ImmutableSet.of("SINGLETON_FUNNEL");
+    public static final String THE_ONLY_INSTANCE = "SINGLETON_FUNNEL";
+    private static final ImmutableSet<String> FUNNEL = ImmutableSet.of(THE_ONLY_INSTANCE);
 
     @OverridingMethodsMustInvokeSuper
     @Override

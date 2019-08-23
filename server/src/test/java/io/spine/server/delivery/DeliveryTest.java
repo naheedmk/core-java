@@ -24,6 +24,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterators;
+import com.google.common.truth.Truth8;
 import com.google.protobuf.util.Durations;
 import io.spine.core.TenantId;
 import io.spine.server.ServerEnvironment;
@@ -34,9 +35,11 @@ import io.spine.server.delivery.given.DeliveryTestEnv.RawMessageMemoizer;
 import io.spine.server.delivery.given.DeliveryTestEnv.ShardIndexMemoizer;
 import io.spine.server.delivery.given.DeliveryTestEnv.SignalMemoizer;
 import io.spine.server.delivery.given.FixedShardStrategy;
+import io.spine.server.delivery.given.StatFunnelProjection;
 import io.spine.server.delivery.given.StatFunnelRepository;
 import io.spine.test.delivery.AddNumber;
 import io.spine.test.delivery.Calc;
+import io.spine.test.delivery.NumberAdded;
 import io.spine.test.delivery.NumberImported;
 import io.spine.test.delivery.NumberReacted;
 import io.spine.testing.SlowTest;
@@ -47,9 +50,11 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import java.util.Collection;
+import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutorService;
@@ -273,10 +278,12 @@ class DeliveryTest {
          *         the identifiers of target entities
          */
         private void runWith(Set<String> targets) {
+            StatFunnelRepository statFunnelRepository = new StatFunnelRepository();
+            CalculatorRepository calcRepository = new CalculatorRepository();
             BlackBoxBoundedContext<?> context =
                     BlackBoxBoundedContext.singleTenant()
-                                          .with(new CalculatorRepository())
-                                          .with(new StatFunnelRepository());
+                                          .with(calcRepository)
+                                          .with(statFunnelRepository);
 
             SignalMemoizer memoizer = subscribeToDelivered();
 
@@ -284,8 +291,8 @@ class DeliveryTest {
 
             Iterator<String> targetsIterator = Iterators.cycle(targets);
             List<AddNumber> commands = commands(streamSize, targetsIterator);
-            List<NumberImported> importEvents = eventsToImport(streamSize, targetsIterator);
             List<NumberReacted> reactEvents = eventsToReact(streamSize, targetsIterator);
+            List<NumberImported> importEvents = eventsToImport(streamSize, targetsIterator);
 
             postAsync(context, commands, importEvents, reactEvents);
 
@@ -310,12 +317,62 @@ class DeliveryTest {
                                          .setId(calcId)
                                          .setSum(sumForTarget)
                                          .build();
+
+                int actualSum = calcRepository.find(calcId)
+                                        .get()
+                                        .state()
+                                        .getSum();
+                if(actualSum != expectedState.getSum()) {
+                    System.out.println("The difference in sum is detected");
+                    Optional<CalcAggregate> result = calcRepository.find(calcId);
+                }
+
                 context.assertEntity(CalcAggregate.class, calcId)
                        .hasStateThat()
                        .comparingExpectedFieldsOnly()
                        .isEqualTo(expectedState);
             }
+
             ensureInboxesEmpty();
+            checkFunnelHasAll(statFunnelRepository, commands, importEvents, reactEvents);
+        }
+
+        @SuppressWarnings("MethodWithMultipleLoops")    // it's a verification test.
+        private static void checkFunnelHasAll(StatFunnelRepository statFunnelRepository,
+                                              List<AddNumber> commands,
+                                              List<NumberImported> importEvents,
+                                              List<NumberReacted> reactEvents) {
+            Optional<StatFunnelProjection> projection = statFunnelRepository.find(
+                    StatFunnelRepository.THE_ONLY_INSTANCE);
+            Truth8.assertThat(projection)
+                  .isPresent();
+            StatFunnelProjection funnel = projection.get();
+
+            for (AddNumber command : commands) {
+                NumberAdded event = NumberAdded.newBuilder()
+                                               .setCalculatorId(command.getCalculatorId())
+                                               .setValue(command.getValue())
+                                               .vBuild();
+                assertTrue(funnel.state()
+                                 .getAddedList()
+                                 .contains(event));
+            }
+
+            for (NumberReacted eventToReact : reactEvents) {
+                NumberAdded event = NumberAdded.newBuilder()
+                                               .setCalculatorId(eventToReact.getCalculatorId())
+                                               .setValue(eventToReact.getValue())
+                                               .vBuild();
+                assertTrue(funnel.state()
+                                 .getAddedList()
+                                 .contains(event));
+            }
+
+            for (NumberImported event : importEvents) {
+                assertTrue(funnel.state()
+                                 .getImportedList()
+                                 .contains(event));
+            }
         }
 
         private static List<NumberReacted> eventsToReact(int streamSize,
@@ -383,7 +440,8 @@ class DeliveryTest {
                             importEventCallables(context, eventsToImport),
                             reactEventsCallables(context, eventsToReact)
                     );
-            Collection<Callable<Object>> signals = signalStream.collect(toList());
+            List<Callable<Object>> signals = signalStream.collect(toList());
+            Collections.shuffle(signals);
             if (1 == threadCount) {
                 runSync(signals);
             } else {

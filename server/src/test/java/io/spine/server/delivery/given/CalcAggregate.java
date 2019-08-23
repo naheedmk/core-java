@@ -20,6 +20,10 @@
 
 package io.spine.server.delivery.given;
 
+import com.google.common.collect.ArrayListMultimap;
+import com.google.common.collect.Multimap;
+import io.spine.core.Event;
+import io.spine.protobuf.AnyPacker;
 import io.spine.server.aggregate.Aggregate;
 import io.spine.server.aggregate.Apply;
 import io.spine.server.command.Assign;
@@ -30,17 +34,56 @@ import io.spine.test.delivery.NumberAdded;
 import io.spine.test.delivery.NumberImported;
 import io.spine.test.delivery.NumberReacted;
 
+import java.util.HashMap;
+import java.util.Map;
+import java.util.Optional;
+
 /**
  * A calculator that is only capable of adding integer numbers.
  */
 public class CalcAggregate extends Aggregate<String, Calc, Calc.Builder> {
 
+    private static final Multimap<String, CalculatorSignal> signals = ArrayListMultimap.create();
+
+    private static final Map<String, NumberImported> firstImportEvents = new HashMap<>();
+
     @Assign
     NumberAdded handle(AddNumber command) {
+        verifyFirstImport();
         int value = command.getValue();
-        return NumberAdded.newBuilder()
-                          .setValue(value)
-                          .vBuild();
+        NumberAdded numberAdded = NumberAdded
+                .newBuilder()
+                .setValue(value)
+                .setCalculatorId(id())
+                .vBuild();
+        signals.put(id(), numberAdded);
+        return numberAdded;
+    }
+
+    @React
+    NumberAdded on(NumberReacted event) {
+        verifyFirstImport();
+        NumberAdded numberAdded = NumberAdded
+                .newBuilder()
+                .setCalculatorId(event.getCalculatorId())
+                .setValue(event.getValue())
+                .vBuild();
+        signals.put(id(), numberAdded);
+        return numberAdded;
+    }
+
+    private void verifyFirstImport() {
+        NumberImported firstImportEvent = firstImportEvents.get(id());
+        if(firstImportEvent != null) {
+            int value = firstImportEvent.getValue();
+            Optional<Event> first = recentHistory().stream()
+                                                   .filter(e -> ((CalculatorSignal) AnyPacker.unpack(
+                                                           e.getMessage())).getValue() == value)
+                                                   .findFirst();
+            if(!first.isPresent()) {
+                System.out.println("The first import event of " + id() + " is absent in the history.");
+            }
+        }
     }
 
     @Apply
@@ -51,16 +94,14 @@ public class CalcAggregate extends Aggregate<String, Calc, Calc.Builder> {
 
     @Apply(allowImport = true)
     private void on(NumberImported event) {
+        String id = id();
+        if(signals.get(id).isEmpty()) {
+            if (!firstImportEvents.containsKey(id)) {
+                firstImportEvents.put(id, event);
+                System.out.println("The candidate for the first imported event is " + id);
+            }
+        }
         int currentSum = builder().getSum();
         builder().setSum(currentSum + event.getValue());
-    }
-
-    @React
-    NumberAdded on(NumberReacted event) {
-        return NumberAdded
-                .newBuilder()
-                .setCalculatorId(event.getCalculatorId())
-                .setValue(event.getValue())
-                .vBuild();
     }
 }

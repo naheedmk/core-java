@@ -31,6 +31,9 @@ import io.spine.server.delivery.ShardIndex;
 import io.spine.server.delivery.ShardObserver;
 import io.spine.server.route.EventRoute;
 import io.spine.server.route.EventRouting;
+import io.spine.string.Stringifiers;
+import io.spine.test.delivery.Calc;
+import io.spine.type.TypeUrl;
 
 import java.security.SecureRandom;
 
@@ -79,10 +82,18 @@ public class DeliveryTestEnv {
      */
     public static class SignalMemoizer implements ShardObserver {
 
+        private static final String CALC_TYPE = TypeUrl.of(Calc.class)
+                                                       .value();
+
         private final Multimap<String, CalculatorSignal> signals = ArrayListMultimap.create();
 
         @Override
         public synchronized void onMessage(InboxMessage update) {
+            if (!CALC_TYPE.equals(update.getInboxId()
+                                        .getTypeUrl())) {
+                return;
+            }
+
             Any packed;
             if (update.hasCommand()) {
                 packed = update.getCommand()
@@ -90,12 +101,16 @@ public class DeliveryTestEnv {
             } else {
                 packed = update.getEvent()
                                .getMessage();
-
             }
+
             CalculatorSignal msg =
                     (CalculatorSignal) AnyPacker.unpack(packed);
+            if (signals.containsEntry(msg.getCalculatorId(), msg)) {
+                throw new RuntimeException(
+                        "A duplicate entry detected for " + msg.getCalculatorId() + ": " +
+                                Stringifiers.toString(msg));
+            }
             signals.put(msg.getCalculatorId(), msg);
-
         }
 
         public ImmutableSet<CalculatorSignal> messagesBy(String id) {

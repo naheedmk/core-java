@@ -43,6 +43,7 @@ public class StatFunnelProjection extends Projection<String, StatFunnel, StatFun
         builder().addImported(e);
     }
 
+    @Subscribe
     void on(NumberAdded e) {
         if (builder().getAddedList()
                      .contains(e)) {
